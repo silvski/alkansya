@@ -1,0 +1,2 @@
+# piggybank
+Algorithmic Trading Bot
