@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "piggybank"
+version = "0.1.0"
+description = ""
+authors = ["Nigel Silva <silva.n.ct.ds@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pandas = "^2.1.4"
+openpyxl = "^3.1.2"
+pyspark = "^3.5.0"
+findspark = "^2.0.1"
+pyyaml = "^6.0.1"
+pyarrow = "^14.0.1"
+matplotlib = "^3.8.2"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
