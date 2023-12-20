@@ -3,8 +3,9 @@ from pyspark.sql import Window
 from pyspark.sql import Column
 
 
-def candle_aggregate(resolution_in_minutes: int) -> list[Column]:
-    """Returns a list of pyspark columns that aggregate the candle stick based on the set resolution.
+def candle_sticks(resolution_in_minutes: int) -> list[Column]:
+    """Returns a pyspark query for generating candle stick summary statistics
+     using the specified resolution.
 
     Parameters:
     -----------
@@ -17,7 +18,8 @@ def candle_aggregate(resolution_in_minutes: int) -> list[Column]:
 
     if resolution_in_minutes < 15:
         raise ValueError(
-            "Resolution may not be less than 15 minutes due to data quality issues."
+            """Resolution may not be less than 15 minutes due to data quality issues
+            with the source."""
         )
 
     resolution_in_seconds = 60 * resolution_in_minutes
