@@ -1,4 +1,4 @@
-import numpy as np
+from scipy.signal import find_peaks
 from typing import Optional
 from pyspark.sql import functions as f
 from pyspark.sql import Window
@@ -141,3 +141,36 @@ def volatility(window_size_days: int) -> Column:
     return (f.stddev(CLOSE).over(w) / f.size(f.collect_list(CLOSE).over(w))).alias(
         f"volatility_{window_size_days}_day"
     )
+
+
+def support_and_resistance(window_size_days: int) -> list[Column]:
+    """Returns a list of pyspark queries for calculating the basic support and
+    resistance.
+
+    Parameters:
+    -----------
+        window_size_days: int
+            The size of the lookback window in days.
+    Returns:
+    --------
+        Pyspark Column
+    """
+
+    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
+    get_peaks = f.udf(lambda x: find_peaks(x)[0], returnType=ArrayType(DoubleType()))
+
+    w = (
+        Window.partitionBy(CURRENCY_PAIR)
+        .orderBy(f.col(TIME).cast("long"))
+        .rangeBetween(-lookback_window_size, Window.currentRow)
+    )
+
+    upper_bounds = f.greatest(OPEN, CLOSE).alias("upper_bound")
+    lower_bounds = f.least(OPEN, CLOSE).alias("lower_bound")
+
+    peak_indeces = get_peaks(f.collect_list(upper_bounds).over(w)).alias("peak_indeces")
+    dip_indeces = get_peaks(f.collect_list((-1 * lower_bounds)).over(w)).alias(
+        "dip_indeces"
+    )
+
+    return [upper_bounds, lower_bounds, peak_indeces, dip_indeces]
