@@ -1,14 +1,16 @@
+import numpy as np
 from typing import Optional
 from pyspark.sql import functions as f
 from pyspark.sql import Window
 from pyspark.sql import Column
-from pyspark.sql.types import ArrayType, IntegerType
+from pyspark.sql.types import ArrayType, IntegerType, DoubleType
 from alkansya.contants import OPEN, HIGH, LOW, CLOSE, VOLUME, TIME, CURRENCY_PAIR, SMA
+from alkansya.utils import convert_window_size_to_seconds
 
 
 def ohlcv(resolution_in_minutes: int) -> list[Column]:
-    """Returns a list of pyspark queries for generating OHLCV summary statistics
-     using the specified timeseries resolution.
+    """Returns a list of pyspark queries for generating OHLCV summary statistics for the
+    given resolution.
 
     Parameters:
     -----------
@@ -46,9 +48,19 @@ def ohlcv(resolution_in_minutes: int) -> list[Column]:
     return queries
 
 
-def sma(window_size_days: int):
-    """ """
-    lookback_window_size = 86400 * window_size_days
+def simple_moving_average(window_size_days: int) -> Column:
+    """Returns a pyspark query for calculating the simple moving average.
+
+    Parameters:
+    -----------
+        window_size_days: int
+            The size of the lookback window in days.
+    Returns:
+    --------
+        Pyspark Column
+    """
+
+    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
 
     w = (
         Window.partitionBy(CURRENCY_PAIR)
@@ -59,9 +71,21 @@ def sma(window_size_days: int):
     return f.mean(f.col(CLOSE)).over(w).alias(f"{SMA}_{window_size_days}_day")
 
 
-def ema(dfs, window_size_days: int):
-    """ """
-    lookback_window_size = 86400 * window_size_days
+def exponential_moving_average(
+    window_size_days: int, smoothing_factor: float = 2.0
+) -> Column:
+    """Returns a pyspark query for calculating the exponential moving average.
+
+    Parameters:
+    -----------
+        window_size_days: int
+            The size of the lookback window in days.
+    Returns:
+    --------
+        Pyspark Column
+    """
+
+    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
     generate_exponents = f.udf(
         lambda array_len: list(range(array_len - 1, -1, -1)),
         returnType=ArrayType(IntegerType()),
@@ -74,49 +98,46 @@ def ema(dfs, window_size_days: int):
     )
 
     x_i = f.collect_list(f.col(CLOSE)).over(w).alias(f"{CLOSE}_collection")
-    j_i = generate_exponents(f.size(x_i)).alias("position")
-    alpha = 2 / ((f.size(x_i)) + 1)
+    j_i = generate_exponents(f.size(x_i)).alias("power")
+    alpha = smoothing_factor / ((f.size(x_i)) + 1)
     weight_temp = (1 - alpha) / (1 - f.pow(alpha, f.size(x_i)))
     repeat_alpha = f.array_repeat(alpha, f.size(x_i)).alias("alpha")
-    repeat_weight_temp = f.array_repeat(weight_temp, f.size(x_i)).alias("weight_temp")
-    ewma_factors = f.arrays_zip(x_i, j_i, repeat_alpha, repeat_weight_temp).alias(
-        "ewma_factors"
+    zipped_alpha_x_j = f.arrays_zip(repeat_alpha, j_i, x_i)
+
+    ema_addends = (
+        f.transform(
+            zipped_alpha_x_j,
+            lambda x: f.pow(x["alpha"], x["power"]) * x[f"{CLOSE}_collection"],
+        )
+    ).alias("ema_addends")
+
+    ema = (
+        f.aggregate(ema_addends, f.lit(0.0), lambda acc, x: acc + x) * weight_temp
+    ).alias(f"ema_{window_size_days}_day")
+
+    return ema
+
+
+def volatility(window_size_days: int) -> Column:
+    """Returns a pyspark query for calculating the volatility.
+
+    Parameters:
+    -----------
+        window_size_days: int
+            The size of the lookback window in days.
+    Returns:
+    --------
+        Pyspark Column
+    """
+
+    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
+
+    w = (
+        Window.partitionBy(CURRENCY_PAIR)
+        .orderBy(f.col(TIME).cast("long"))
+        .rangeBetween(-lookback_window_size, Window.currentRow)
     )
-    ewma_addends = f.expr(
-        f"transform(ewma_factors, x -> POWER(x['alpha'],x['position'])*x['{CLOSE}_collection']*x['weight_temp'])"
-    ).alias("ewma_addends")
 
-    ewma = f.expr(
-        str="AGGREGATE(ewma_addends, cast(0 as double), (acc, x) -> acc + x)"
-    ).alias("ewma")
-
-    return (
-        dfs.select("time", "currency_pair", ewma_factors)
-        .select("*", ewma_addends)
-        .select("*", ewma)
-        .drop("ewma_factors", "ewma_addends")
+    return (f.stddev(CLOSE).over(w) / f.size(f.collect_list(CLOSE).over(w))).alias(
+        f"volatility_{window_size_days}_day"
     )
-
-
-import os
-import findspark
-from pyspark.sql import SparkSession
-from alkansya.utils import get_configurations
-
-findspark.init()
-
-os.environ["ENV"] = "DEV"
-
-cfg = get_configurations()
-
-path_to_silver = cfg["path_to_silver"]
-path_to_gold = cfg["path_to_gold"]
-
-spark = SparkSession.builder.master("local[*]").getOrCreate()
-
-dfs_temp = ema(
-    dfs=spark.read.parquet(f"{path_to_gold}/resolution_60min"), window_size_days=1
-)
-
-print(dfs_temp.dtypes)
-dfs_temp.show()
