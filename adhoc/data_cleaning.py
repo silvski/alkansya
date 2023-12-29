@@ -1,18 +1,36 @@
+# Run this once to clean all extracted files.
+
+import os
+
 import findspark
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as f
-from alkansya.contants import OPEN, HIGH, LOW, CLOSE, VOLUME, TIME, CURRENCY_PAIR
+
+from alkansya.contants import (
+    CLOSE,
+    CURRENCY_PAIR,
+    HIGH,
+    LOW,
+    OPEN,
+    TIME,
+    VOLUME,
+)
+from alkansya.utils import get_configurations
 
 findspark.init()
 
-parent_directory = "C:/Users/Nigel/Documents/FOREX/SILVER"
-target_directory = "C:/Users/Nigel/Documents/FOREX/GOLD"
+os.environ["ENV"] = "DEV"
+cfg = get_configurations()
+
+PATH_TO_BRONZE = cfg["path_to_bronze"]
+PATH_TO_SILVER = cfg["path_to_silver"]
+PATH_TO_GOLD = cfg["path_to_gold"]
 
 spark = SparkSession.builder.master("local[*]").getOrCreate()
 
 dfs = (
     spark.read.option("header", "true")
-    .csv(f"{parent_directory}/*")
+    .csv(f"{PATH_TO_SILVER}/*")
     .select(
         f.to_timestamp("Time", "yyyy.MM.dd HH:mm").alias(TIME),
         f.col("Open").cast("Float").alias(OPEN),
@@ -25,5 +43,5 @@ dfs = (
 )
 
 dfs.write.partitionBy(CURRENCY_PAIR).parquet(
-    f"{target_directory}/cleaned", mode="overwrite"
+    f"{PATH_TO_GOLD}/cleaned", mode="overwrite"
 )

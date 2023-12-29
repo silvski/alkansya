@@ -1,11 +1,10 @@
-from scipy.signal import find_peaks
-from typing import Optional
-from pyspark.sql import functions as f
-from pyspark.sql import Window
 from pyspark.sql import Column
-from pyspark.sql.types import ArrayType, IntegerType, DoubleType
-from alkansya.contants import OPEN, HIGH, LOW, CLOSE, VOLUME, TIME, CURRENCY_PAIR, SMA
-from alkansya.utils import convert_window_size_to_seconds
+from pyspark.sql import functions as f
+from pyspark.sql.types import ArrayType, IntegerType
+from scipy.signal import find_peaks
+
+from alkansya.contants import CLOSE, CURRENCY_PAIR, HIGH, LOW, OPEN, SMA, TIME, VOLUME
+from alkansya.spark_utils import WindowMaker
 
 
 def ohlcv(resolution_in_minutes: int) -> list[Column]:
@@ -27,12 +26,11 @@ def ohlcv(resolution_in_minutes: int) -> list[Column]:
             with the source."""
         )
 
-    resolution_in_seconds = 60 * resolution_in_minutes
-
-    w = (
-        Window.partitionBy(CURRENCY_PAIR)
-        .orderBy(f.col(TIME).cast("long"))
-        .rangeBetween(-resolution_in_seconds, Window.currentRow)
+    w = WindowMaker().create_lookback_window(
+        window_size=resolution_in_minutes,
+        unit_of_time="minutes",
+        order_col=f.col(TIME).cast("long"),
+        partition_col=CURRENCY_PAIR,
     )
 
     queries = [
@@ -49,7 +47,7 @@ def ohlcv(resolution_in_minutes: int) -> list[Column]:
 
 
 def simple_moving_average(window_size_days: int) -> Column:
-    """Returns a pyspark query for calculating the simple moving average.
+    """Returns a pyspark query for calculating the CLOSE simple moving average.
 
     Parameters:
     -----------
@@ -60,12 +58,11 @@ def simple_moving_average(window_size_days: int) -> Column:
         Pyspark Column
     """
 
-    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
-
-    w = (
-        Window.partitionBy(CURRENCY_PAIR)
-        .orderBy(f.col(TIME).cast("long"))
-        .rangeBetween(-lookback_window_size, Window.currentRow)
+    w = WindowMaker().create_lookback_window(
+        window_size=window_size_days,
+        unit_of_time="days",
+        order_col=f.col(TIME).cast("long"),
+        partition_col=CURRENCY_PAIR,
     )
 
     return f.mean(f.col(CLOSE)).over(w).alias(f"{SMA}_{window_size_days}_day")
@@ -74,7 +71,7 @@ def simple_moving_average(window_size_days: int) -> Column:
 def exponential_moving_average(
     window_size_days: int, smoothing_factor: float = 2.0
 ) -> Column:
-    """Returns a pyspark query for calculating the exponential moving average.
+    """Returns a pyspark query for calculating the CLOSE exponential moving average.
 
     Parameters:
     -----------
@@ -84,17 +81,16 @@ def exponential_moving_average(
     --------
         Pyspark Column
     """
+    w = WindowMaker().create_lookback_window(
+        window_size=window_size_days,
+        unit_of_time="days",
+        order_col=f.col(TIME).cast("long"),
+        partition_col=CURRENCY_PAIR,
+    )
 
-    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
     generate_exponents = f.udf(
         lambda array_len: list(range(array_len - 1, -1, -1)),
         returnType=ArrayType(IntegerType()),
-    )
-
-    w = (
-        Window.partitionBy(CURRENCY_PAIR)
-        .orderBy(f.col(TIME).cast("long"))
-        .rangeBetween(-lookback_window_size, Window.currentRow)
     )
 
     x_i = f.collect_list(f.col(CLOSE)).over(w).alias(f"{CLOSE}_collection")
@@ -130,12 +126,11 @@ def volatility(window_size_days: int) -> Column:
         Pyspark Column
     """
 
-    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
-
-    w = (
-        Window.partitionBy(CURRENCY_PAIR)
-        .orderBy(f.col(TIME).cast("long"))
-        .rangeBetween(-lookback_window_size, Window.currentRow)
+    w = WindowMaker().create_lookback_window(
+        window_size=window_size_days,
+        unit_of_time="days",
+        order_col=f.col(TIME).cast("long"),
+        partition_col=CURRENCY_PAIR,
     )
 
     return (f.stddev(CLOSE).over(w) / f.size(f.collect_list(CLOSE).over(w))).alias(
@@ -143,9 +138,19 @@ def volatility(window_size_days: int) -> Column:
     )
 
 
-def support_and_resistance(window_size_days: int) -> list[Column]:
+def support_and_resistance(
+    window_size_days: int,
+    height=None,
+    threshold=None,
+    distance=None,
+    prominence=None,
+    width=None,
+    wlen=None,
+    rel_height=0.5,
+    plateau_size=None,
+) -> list[Column]:
     """Returns a list of pyspark queries for calculating the basic support and
-    resistance.
+    resistance. EXPERIMENTAL
 
     Parameters:
     -----------
@@ -156,13 +161,31 @@ def support_and_resistance(window_size_days: int) -> list[Column]:
         Pyspark Column
     """
 
-    lookback_window_size = convert_window_size_to_seconds(window_size_days, "days")
-    get_peaks = f.udf(lambda x: find_peaks(x)[0], returnType=ArrayType(DoubleType()))
+    get_peaks = f.udf(
+        lambda x: list(
+            map(
+                int,
+                find_peaks(
+                    x,
+                    height=None,
+                    threshold=None,
+                    distance=None,
+                    prominence=None,
+                    width=None,
+                    wlen=None,
+                    rel_height=0.5,
+                    plateau_size=None,
+                )[0],
+            )
+        ),
+        returnType=ArrayType(IntegerType()),
+    )
 
-    w = (
-        Window.partitionBy(CURRENCY_PAIR)
-        .orderBy(f.col(TIME).cast("long"))
-        .rangeBetween(-lookback_window_size, Window.currentRow)
+    w = WindowMaker().create_lookback_window(
+        window_size=window_size_days,
+        unit_of_time="days",
+        order_col=f.col(TIME).cast("long"),
+        partition_col=CURRENCY_PAIR,
     )
 
     upper_bounds = f.greatest(OPEN, CLOSE).alias("upper_bound")

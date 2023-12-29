@@ -1,3 +1,4 @@
+PATH_TO_FOREX_DATA = "/Users/nigelsilva/Documents/FOREX"
 OPEN = "open"
 LOW = "low"
 HIGH = "high"
