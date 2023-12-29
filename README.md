@@ -1,2 +1,3 @@
-# piggybank
-Algorithmic Trading Bot
+# Alkansya
+
+Machine learning for algorithmic trading.
