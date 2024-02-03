@@ -4,7 +4,7 @@ from pyspark.sql.types import ArrayType, IntegerType
 from scipy.signal import find_peaks
 
 from alkansya.contants import CLOSE, CURRENCY_PAIR, HIGH, LOW, OPEN, SMA, TIME, VOLUME
-from alkansya.spark_utils import WindowMaker as wm
+from alkansya.spark_utils import TemporalWindowMaker as twm
 
 
 def ohlcv(resolution_in_minutes: int) -> list[Column]:
@@ -26,7 +26,7 @@ def ohlcv(resolution_in_minutes: int) -> list[Column]:
             with the source."""
         )
 
-    w = wm.create_lookback_window(
+    w = twm.create_lookback_window(
         window_size=resolution_in_minutes,
         unit_of_time="minutes",
         order_col=f.col(TIME).cast("long"),
@@ -58,7 +58,7 @@ def simple_moving_average(window_size_days: int) -> Column:
         Pyspark Column
     """
 
-    w = wm.create_lookback_window(
+    w = twm.create_lookback_window(
         window_size=window_size_days,
         unit_of_time="days",
         order_col=f.col(TIME).cast("long"),
@@ -81,7 +81,7 @@ def exponential_moving_average(
     --------
         Pyspark Column
     """
-    w = wm.create_lookback_window(
+    w = twm.create_lookback_window(
         window_size=window_size_days,
         unit_of_time="days",
         order_col=f.col(TIME).cast("long"),
@@ -126,7 +126,7 @@ def volatility(window_size_days: int) -> Column:
         Pyspark Column
     """
 
-    w = wm.create_lookback_window(
+    w = twm.create_lookback_window(
         window_size=window_size_days,
         unit_of_time="days",
         order_col=f.col(TIME).cast("long"),
@@ -181,7 +181,7 @@ def support_and_resistance(
         returnType=ArrayType(IntegerType()),
     )
 
-    w = wm.create_lookback_window(
+    w = twm.create_lookback_window(
         window_size=window_size_days,
         unit_of_time="days",
         order_col=f.col(TIME).cast("long"),
