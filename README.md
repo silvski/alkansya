@@ -1,3 +1,3 @@
 # Alkansya
 
-Machine learning for algorithmic trading.
+Machine learning solution for algorithmic trading.
